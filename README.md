@@ -10,10 +10,10 @@ and command output before passing a small status update to the FreshThread app.
 For a handoff, it also passes the task summary you ask Codex to save. That
 summary can contain information you wrote, so it is stored locally by the app.
 
-The bridge itself has no internet connection. The private app still checks for
-updates and can send a bug report if you choose to submit one. This source code
-lets you inspect the connection to Codex; it cannot prove everything the private
-app does.
+The bridge itself has no internet connection. The main app reads your Codex
+session files on your computer to show the measurements, and it only goes online
+to check for updates and to send a bug report if you choose to submit one. This
+source code shows exactly what Codex's hooks and the FreshThread tool pass to the app.
 
 FreshThread may send Codex a fixed reminder to save the current task state. The
 reminder also asks Codex not to mention that bookkeeping unless you ask. The
