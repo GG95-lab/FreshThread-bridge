@@ -86,6 +86,13 @@ fn non_verifier_hook_does_not_launch_or_hash_the_private_engine() {
     assert!(ignored.stdout.is_empty());
     assert!(ignored.stderr.is_empty());
     let forwarded = invoke("cargo test");
-    assert!(String::from_utf8_lossy(&forwarded.stderr).contains("backend_unavailable"));
-    assert!(!String::from_utf8_lossy(&forwarded.stderr).contains("SECRET_OUTPUT"));
+    let diagnostic = String::from_utf8_lossy(&forwarded.stderr);
+    // A clean CI runner has no FreshThread installation key; an installed
+    // developer profile can reach the deliberately missing backend instead.
+    assert!(
+        diagnostic.contains("reason=key_unavailable")
+            || diagnostic.contains("reason=backend_unavailable"),
+        "unexpected fixed bridge status: {diagnostic}"
+    );
+    assert!(!diagnostic.contains("SECRET_OUTPUT"));
 }
