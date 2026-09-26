@@ -53,9 +53,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
-          # Release immutability must be enabled before the first tag.
-          gh api "repos/$env:GITHUB_REPOSITORY/immutable-releases" | Out-Null
-          if ($LASTEXITCODE -ne 0) { throw 'Enable immutable releases before publishing the bridge.' }
-          # No --clobber: a published tag/asset is never replaced on a rerun.
+          # Immutability is enabled by the repository admin before tagging.
+          # The Actions token cannot read that admin setting (HTTP 403), so
+          # inspect the actual published release instead.
           gh release create $env:RELEASE_TAG bridge-asset/freshthread-bridge.exe --repo $env:GITHUB_REPOSITORY --verify-tag --title "FreshThread bridge $env:RELEASE_TAG" --notes 'Public integration bridge under MPL-2.0. Build provenance is available through GitHub artifact attestations.' --latest=false
           if ($LASTEXITCODE -ne 0) { throw 'Bridge release publication failed.' }
+          $release = gh api "repos/$env:GITHUB_REPOSITORY/releases/tags/$env:RELEASE_TAG" | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0 -or $release.immutable -ne $true) { throw 'Published bridge release is not immutable.' }
