@@ -1,0 +1,61 @@
+name: Build public bridge
+on:
+  push:
+    tags: ['v*']
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: windows-2025
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Format and regression tests
+        shell: pwsh
+        run: |
+          cargo fmt --all -- --check
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo test --locked
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Build the public source
+        shell: pwsh
+        run: |
+          cargo build --release --locked --target x86_64-pc-windows-msvc
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: freshthread-bridge-windows-x64
+          path: target/x86_64-pc-windows-msvc/release/freshthread-bridge.exe
+          if-no-files-found: error
+  attest-and-publish:
+    needs: build
+    runs-on: windows-2025
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - name: Download the read-only build's executable
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: freshthread-bridge-windows-x64
+          path: bridge-asset
+      - name: Attest exact executable
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: bridge-asset/freshthread-bridge.exe
+      - name: Publish durable release asset
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          # Release immutability must be enabled before the first tag.
+          gh api "repos/$env:GITHUB_REPOSITORY/immutable-releases" | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw 'Enable immutable releases before publishing the bridge.' }
+          # No --clobber: a published tag/asset is never replaced on a rerun.
+          gh release create $env:RELEASE_TAG bridge-asset/freshthread-bridge.exe --repo $env:GITHUB_REPOSITORY --verify-tag --title "FreshThread bridge $env:RELEASE_TAG" --notes 'Public integration bridge under MPL-2.0. Build provenance is available through GitHub artifact attestations.' --latest=false
+          if ($LASTEXITCODE -ne 0) { throw 'Bridge release publication failed.' }
