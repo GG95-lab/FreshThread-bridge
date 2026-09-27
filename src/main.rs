@@ -1,8 +1,8 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 use freshthread_bridge::{
+    activation::{ActiveBackend, RECHECK_INTERVAL, Source, Target},
     checkpoint::{Checkpoint, CheckpointResult, project_meta},
     hooks,
-    transport::{Backend, verified_backend},
 };
 use rmcp::{
     ErrorData, ServiceExt, handler::server::wrapper::Parameters, model::Meta, tool, tool_router,
@@ -14,7 +14,7 @@ use tokio::sync::Mutex;
 
 #[derive(Clone)]
 struct Server {
-    backend: Arc<Mutex<Backend>>,
+    backend: Arc<Mutex<ActiveBackend>>,
 }
 
 #[tool_router(server_handler)]
@@ -62,20 +62,24 @@ async fn main() {
 
 async fn run() -> Result<(), &'static str> {
     let args = std::env::args().skip(1).collect::<Vec<_>>();
-    if args.len() != 7 || args[0] != "--backend" || args[2] != "--backend-sha256" {
+    let managed = args.len() == 4 && args[0] == "--managed-backend";
+    if !managed && (args.len() != 7 || args[0] != "--backend" || args[2] != "--backend-sha256") {
         return Err("invalid_arguments");
     }
-    let mode = args[4].as_str();
+    let offset = if managed { 1 } else { 4 };
+    let mode = args[offset].as_str();
+    let contract = args[offset + 1].as_str();
+    let value = args[offset + 2].as_str();
     let mcp = mode == "--codex-mcp";
     if mcp {
-        if args[5] != "--freshthread-plugin-generation" || !freshthread_bridge::bounded(&args[6]) {
+        if contract != "--freshthread-plugin-generation" || !freshthread_bridge::bounded(value) {
             return Err("invalid_arguments");
         }
     } else if !matches!(
         mode,
         "--codex-lifecycle-hook" | "--codex-stop-hook" | "--codex-post-tool-use"
-    ) || args[5] != "--freshthread-hook-contract"
-        || args[6] != "v1"
+    ) || contract != "--freshthread-hook-contract"
+        || value != "v1"
     {
         return Err("invalid_arguments");
     }
@@ -95,12 +99,19 @@ async fn run() -> Result<(), &'static str> {
     } else {
         None
     };
-    let path = verified_backend(
-        &std::env::current_exe().map_err(|_| "invalid_backend_path")?,
-        &args[1],
-        &args[3],
-    )?;
-    let mut backend = Backend::spawn(&path, &args[5], &args[6])?;
+    let bridge = std::env::current_exe().map_err(|_| "invalid_backend_path")?;
+    let source = if managed {
+        Source::managed(bridge, mcp.then(|| value.to_owned()))?
+    } else {
+        Source::Fixed {
+            bridge,
+            target: Target {
+                name: args[1].clone(),
+                digest: args[3].clone(),
+            },
+        }
+    };
+    let mut backend = ActiveBackend::start(source, contract, value)?;
     if mcp {
         let backend = Arc::new(Mutex::new(backend));
         let service = Server {
@@ -110,12 +121,29 @@ async fn run() -> Result<(), &'static str> {
         .await
         .map_err(|_| "mcp_start_failed")?;
         // Just as in the original integration, only a completed MCP handshake counts as pickup.
-        backend
-            .lock()
-            .await
-            .request("mcp_initialized", Value::Null)
-            .await?;
-        service.waiting().await.map_err(|_| "mcp_stopped")?;
+        if let Err(code) = backend.lock().await.initialized().await {
+            if !managed {
+                return Err(code);
+            }
+            eprintln!("freshthread bridge activation=waiting reason={code}");
+        }
+        let waiting = service.waiting();
+        tokio::pin!(waiting);
+        let mut interval = tokio::time::interval(RECHECK_INTERVAL);
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        let mut previous_error = None;
+        loop {
+            tokio::select! {
+                result = &mut waiting => { result.map_err(|_| "mcp_stopped")?; break; }
+                _ = interval.tick(), if managed => {
+                    let error = backend.lock().await.refresh().await.err();
+                    if error != previous_error {
+                        if let Some(code) = error { eprintln!("freshthread bridge activation=waiting reason={code}"); }
+                        previous_error = error;
+                    }
+                }
+            }
+        }
         return Ok(());
     }
     let bytes = hook_input.ok_or("invalid_hook")?;
