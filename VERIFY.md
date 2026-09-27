@@ -37,7 +37,11 @@ fixed status codes rather than raw engine exceptions.
 
 1. Read `%LOCALAPPDATA%\com.freshthread.desktop\integration\freshthread-integration.cmd`
    without running it. Confirm it starts `bin\freshthread-integration-bridge-<hash>.exe`
-   and names the private backend plus its SHA256.
+   and uses `--managed-backend`. For this mode, `integration-state.json` in the
+   same folder names the active app version, its SHA256 and the bridge SHA256.
+   The bridge checks these before changing its private child; its Codex
+   connection stays open. Older installations name a fixed backend and SHA256
+   directly in the command instead.
 2. Hash that exact bridge file with `Get-FileHash -Algorithm SHA256`. Compare
    it with the reviewed public GitHub Release asset.
 3. Replace the placeholders below with values from that public release and

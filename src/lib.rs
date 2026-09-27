@@ -1,3 +1,4 @@
+pub mod activation;
 pub mod checkpoint;
 mod command;
 pub mod hooks;

@@ -67,6 +67,22 @@ pub fn verified_backend(bridge: &Path, name: &str, digest: &str) -> Result<PathB
 }
 
 impl Backend {
+    pub fn healthy(&mut self) -> bool {
+        !self.failed && matches!(self.child.try_wait(), Ok(None))
+    }
+
+    pub async fn shutdown(&mut self) {
+        if tokio::time::timeout(Duration::from_millis(500), async {
+            self.input.shutdown().await?;
+            self.child.wait().await
+        })
+        .await
+        .is_err()
+        {
+            let _ = self.child.kill().await;
+        }
+    }
+
     pub fn spawn(path: &Path, contract: &str, value: &str) -> Result<Self, &'static str> {
         let mut command = Command::new(path);
         command

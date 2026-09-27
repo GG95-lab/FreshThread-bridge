@@ -5,6 +5,12 @@ Windows. The main FreshThread app remains private. [Get the app here](https://gi
 An older installer may still use the previous connection until it receives an
 app update that includes this bridge.
 
+Once this bridge is loaded, compatible FreshThread updates can reconnect in the
+background without closing Codex. A call already in progress finishes first.
+The bridge checks the new app file before switching and keeps the same Codex
+connection open. Moving from an older bridge, or changing the plugin's tools or
+permissions, can still require a Codex restart.
+
 The bridge receives messages from Codex. It removes your prompt, shell command
 and command output before passing a small status update to the FreshThread app.
 For a handoff, it also passes the task summary you ask Codex to save. That
