@@ -1,6 +1,6 @@
 [package]
 name = "freshthread-bridge"
-version = "0.1.3"
+version = "0.1.4"
 edition = "2024"
 rust-version = "1.97.1"
 publish = false
@@ -8,6 +8,8 @@ license = "MPL-2.0"
 
 # Deliberately independent of the private FreshThread workspace.
 [workspace]
+members = ["inspector"]
+default-members = [".", "inspector"]
 
 [dependencies]
 serde = { version = "=1.0.228", features = ["derive"] }

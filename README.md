@@ -28,3 +28,18 @@ exact text and steps to check the installed bridge are in [Verification](VERIFY.
 This bridge is licensed under [MPL-2.0](LICENSE). People may use and change it;
 if they distribute changed bridge files, they must make those files' source
 available. This license does not apply to the separate private FreshThread app.
+
+## Network activity viewer
+
+FreshThread's **Network activity…** tray option opens a separate, public
+`freshthread-inspect.exe`. Its blue terminal-style window shows connections
+reported by Windows, with labels for FreshThread, WebView2, Codex and related
+programs. Select a row to read the full program and connection details.
+
+No administrator permission is needed. Very short connections can be missed.
+The window shows addresses and connection states, not encrypted message contents
+or the reason for a request. Nothing is uploaded or saved as a traffic log.
+
+Close the window to stop watching. The inspector has its own GitHub build
+verification, alongside the bridge. See [verification steps](VERIFY.md) and
+[what the viewer can see](NETWORK.md).

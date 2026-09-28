@@ -2,7 +2,8 @@
 
 This source project builds only the public bridge. The desktop engine, scoring,
 checkpoint persistence, handoff implementation and app updater are private.
-This verification concerns the bridge's Codex connection, not the private app.
+This verification concerns the public bridge, including its on-demand network
+viewer from v0.1.4, not the private app. The viewer is currently in development.
 
 ## Data passed to the private app
 
@@ -55,13 +56,21 @@ This checks the file at inspection time. It does not establish the behavior of
 the private app, future replacements or every possible Codex configuration.
 Use the source commit and tag of the release actually installed on your machine.
 
+## Check the network activity viewer
+
+The tray opens `freshthread-inspect.exe` next to `freshthread-desktop.exe`.
+Hash and verify that exact file using steps 2–3 above, choosing the inspector's
+release asset. Its digest is different from the bridge's; both must pass their
+own attestation check. The private app verifies the inspector's pinned digest
+before launching it. The viewer does not request administrator permission.
+
 ## Before publication
 
-The project has a pinned toolchain and lockfile and no private source
-dependencies. After build authorization, its native checks are `cargo test
---locked` and `cargo build --release --locked --target x86_64-pc-windows-msvc`.
-The tagged public GitHub workflow must test, build and attest the exact file.
-The private installer must include that file unchanged. The private release
-policy requires an immutable public release asset, its pinned SHA256 and a
-successful verification of repository, source commit, tag and workflow.
+The public workspace has a pinned toolchain and lockfile and no private source
+dependencies. Run `cargo test --workspace --locked`, then
+`cargo build --workspace --release --locked --target x86_64-pc-windows-msvc`.
+The tagged workflow tests, builds and attests both executables. Each must be
+included in the private installer unchanged, with its own provenance manifest.
+The private release policy requires immutable public assets, separately pinned
+SHA256 values, and successful repository/commit/tag/workflow verification.
 Reproducible Windows builds have not been demonstrated.
