@@ -1,9 +1,8 @@
-# Verify the FreshThread bridge
+# Verify the FreshThread public tools
 
-This source project builds only the public bridge. The desktop engine, scoring,
-checkpoint persistence, handoff implementation and app updater are private.
-This verification concerns the public bridge, including its on-demand network
-viewer from v0.1.4, not the private app. The viewer is currently in development.
+This project builds the public bridge and the separate network activity viewer.
+The desktop engine, scoring, checkpoint persistence, handoff implementation and
+app updater are private. Each public executable has its own build verification.
 
 ## Data passed to the private app
 
@@ -64,13 +63,20 @@ release asset. Its digest is different from the bridge's; both must pass their
 own attestation check. The private app verifies the inspector's pinned digest
 before launching it. The viewer does not request administrator permission.
 
+The bridge and inspector can use different public release versions. This lets
+the viewer improve without replacing an unchanged bridge already loaded by
+Codex. Use each file's own `.provenance.json` next to the installed app to find
+its release tag, source commit and expected SHA256; then run the verification
+command above against that exact file. The JSON is a lookup aid, not a substitute
+for GitHub's cryptographic verification.
+
 ## Before publication
 
 The public workspace has a pinned toolchain and lockfile and no private source
 dependencies. Run `cargo test --workspace --locked`, then
 `cargo build --workspace --release --locked --target x86_64-pc-windows-msvc`.
 The tagged workflow tests, builds and attests both executables. Each must be
-included in the private installer unchanged, with its own provenance manifest.
+included in the private installer unchanged when selected, with its own provenance manifest.
 The private release policy requires immutable public assets, separately pinned
 SHA256 values, and successful repository/commit/tag/workflow verification.
 Reproducible Windows builds have not been demonstrated.
