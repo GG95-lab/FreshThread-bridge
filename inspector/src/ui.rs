@@ -1,7 +1,7 @@
 //! Native text UI. No console host, WebView, admin mode or persistent observer.
 use super::{
     model::{Connection, Group, safe_text},
-    process, snapshot,
+    names, process, snapshot,
 };
 use std::time::Instant;
 use windows::{
@@ -9,14 +9,15 @@ use windows::{
         Foundation::{COLORREF, HWND, LPARAM, LRESULT, RECT, WPARAM},
         Graphics::Gdi::*,
         System::{LibraryLoader::GetModuleHandleW, SystemInformation::GetLocalTime},
-        UI::{HiDpi::*, Input::KeyboardAndMouse::*, WindowsAndMessaging::*},
+        UI::{Controls::*, HiDpi::*, Input::KeyboardAndMouse::*, WindowsAndMessaging::*},
     },
     core::{PCWSTR, w},
 };
 
 const BACKGROUND: COLORREF = COLORREF(0x00171311);
 const BLUE: COLORREF = COLORREF(0x00f0b98f);
-const HELP: &str = "Shows the current Windows TCP connections and local UDP endpoints for matched programs in this Windows session.\r\n\r\nShort connections between samples, exited processes and inaccessible processes may be missed. A local UDP endpoint does not identify its destination.\r\n\r\nAddresses do not identify the request's purpose. WebView2 is a Microsoft runtime and can carry app requests. Codex traffic does not establish that FreshThread initiated it.\r\n\r\nNo payload reading, DNS lookups, uploads or saved history. Closing this window stops observation. Pause stops sampling.";
+const MUTED: COLORREF = COLORREF(0x00ba9781);
+const HELP: &str = "Shows the current Windows TCP connections and local UDP endpoints for matched programs in this Windows session.\r\n\r\nShort connections between samples, exited processes and inaccessible processes may be missed. A local UDP endpoint does not identify its destination.\r\n\r\nAddresses do not identify the request's purpose. WebView2 is a Microsoft runtime and can carry app requests. Codex traffic does not establish that FreshThread initiated it.\r\n\r\nNames are hints from the local Windows DNS cache; shared IPs do not prove a hostname. No payload reading, network DNS lookups, uploads or saved history. Closing this window stops observation. Pause stops sampling.";
 
 struct View {
     header: HWND,
@@ -25,6 +26,8 @@ struct View {
     footer: HWND,
     font: HFONT,
     rows: Vec<Connection>,
+    display_rows: Vec<Option<usize>>,
+    names: names::Reader,
     selected: usize,
     paused: bool,
     help: bool,
@@ -57,17 +60,41 @@ fn field(value: &str, width: usize) -> String {
         safe_text(value, width)
     }
 }
-fn row_label(row: &Connection, width: usize) -> String {
+fn row_label(row: &Connection, width: usize, cache: &names::Cache) -> String {
     let destination = if row.protocol.starts_with("UDP") {
         &row.local
     } else {
         &row.remote
     };
+    let hint = row.remote_ip().and_then(|ip| cache.entries.get(&ip));
+    let destination = if !row.local_only() {
+        hint.and_then(|names| names.first())
+            .map(|name| {
+                format!(
+                    "{name}{}",
+                    if hint.unwrap().len() > 1 {
+                        " (+names)"
+                    } else {
+                        " (cached)"
+                    }
+                )
+            })
+            .unwrap_or_else(|| destination.clone())
+    } else {
+        row.local.clone()
+    };
+    let state = if row.local_only() {
+        "local only"
+    } else if row.protocol.starts_with("UDP") {
+        "target unknown"
+    } else {
+        &row.state
+    };
     format!(
         "{}  {}  {}",
         field(row.identity.group.label(), 13),
-        field(destination, width.saturating_sub(30).max(8)),
-        field(&row.state, 12)
+        field(&destination, width.saturating_sub(33).max(8)),
+        field(state, 14)
     )
 }
 impl View {
@@ -92,10 +119,24 @@ impl View {
             Group::Codex => "Codex; request origin is not established",
             Group::Related => "Related child process; purpose is not established",
         };
+        let cached = row
+            .remote_ip()
+            .and_then(|ip| self.names.cache.entries.get(&ip))
+            .map(|names| names.join(", "))
+            .unwrap_or_else(|| "No matching name in the sampled local cache".into());
+        let scope = if row.state == "listen" {
+            "Listening locally; accepts connections, not outgoing traffic"
+        } else if row.local_only() {
+            "Local endpoint / loopback; not a remote connection"
+        } else if row.protocol.starts_with("UDP") {
+            "UDP local endpoint; destination is not available"
+        } else {
+            "Remote TCP connection; direction and purpose are not identified"
+        };
         text(
             self.detail,
             &format!(
-                "{meaning}\r\nProgram   {}\r\nLocal     {}\r\nRemote    {}\r\nProtocol  {}    PID {}    Sample {} (local time)\r\nPurpose   Not identified by this connection snapshot",
+                "{meaning}\r\n{scope}\r\nProgram   {}\r\nLocal     {}\r\nRemote    {}\r\nProtocol  {}    PID {}    Sample {} (local time)\r\nCached names: {cached}\r\nNames are hints: shared IPs do not prove the destination hostname.",
                 row.identity.path.replace(['\r', '\n'], " "),
                 row.local,
                 row.remote,
@@ -114,16 +155,40 @@ impl View {
         unsafe {
             SendMessageW(self.list, WM_SETREDRAW, Some(WPARAM(0)), None);
             SendMessageW(self.list, LB_RESETCONTENT, None, None);
-            for row in &self.rows {
-                let value = process::wide(&row_label(row, width));
-                SendMessageW(
+            for row_index in &self.display_rows {
+                let label = row_index
+                    .map(|index| row_label(&self.rows[index], width, &self.names.cache))
+                    .unwrap_or_else(|| "── Not FreshThread · related programs ──".into());
+                let value = process::wide(&label);
+                let item = SendMessageW(
                     self.list,
                     LB_ADDSTRING,
                     None,
                     Some(LPARAM(value.as_ptr() as isize)),
+                )
+                .0;
+                let style = row_index
+                    .map(|i| {
+                        if self.rows[i].identity.group == Group::FreshThread {
+                            0
+                        } else {
+                            2
+                        }
+                    })
+                    .unwrap_or(1);
+                SendMessageW(
+                    self.list,
+                    LB_SETITEMDATA,
+                    Some(WPARAM(item as usize)),
+                    Some(LPARAM(style)),
                 );
             }
-            SendMessageW(self.list, LB_SETCURSEL, Some(WPARAM(self.selected)), None);
+            let selection = self
+                .display_rows
+                .iter()
+                .position(|i| *i == Some(self.selected))
+                .unwrap_or(usize::MAX);
+            SendMessageW(self.list, LB_SETCURSEL, Some(WPARAM(selection)), None);
             SendMessageW(self.list, WM_SETREDRAW, Some(WPARAM(1)), None);
             let _ = InvalidateRect(Some(self.list), None, true);
         }
@@ -133,17 +198,25 @@ impl View {
         let own = self
             .rows
             .iter()
-            .filter(|r| r.identity.group == Group::FreshThread)
+            .filter(|r| r.identity.group == Group::FreshThread && r.remote_tcp())
             .count();
         let mode = if self.paused { "PAUSED" } else { "WATCHING" };
         text(
             self.header,
             &format!(
-                "FRESHTHREAD · NETWORK ACTIVITY   {mode}\r\nFreshThread: {own} visible endpoints · Related programs: {}\r\nSample {} · Open {}s  {}\r\n────────────────────────────────────────────────────────────────\r\nPROGRAM        ADDRESS / UDP LOCAL ENDPOINT          STATE",
-                self.rows.len() - own,
+                "FRESHTHREAD · NETWORK ACTIVITY   {mode}\r\nFreshThread itself: {}\r\nSample {} · Open {}s  {}\r\n{}\r\nPROGRAM        DESTINATION / LOCAL ADDRESS          STATE",
+                if own == 0 {
+                    "no remote TCP connections visible".into()
+                } else {
+                    format!(
+                        "{own} remote TCP connection{} visible",
+                        if own == 1 { "" } else { "s" }
+                    )
+                },
                 self.time,
                 self.started.elapsed().as_secs(),
-                self.status
+                self.status,
+                self.names.cache.status
             ),
         );
     }
@@ -186,13 +259,34 @@ impl View {
             self.status = "Showing first 2048 endpoints".into();
         }
         self.time = clock();
-        if rows != self.rows {
+        let names_changed = self.names.update(
+            rows.iter()
+                .filter(|r| r.remote_tcp())
+                .filter_map(Connection::remote_ip)
+                .collect(),
+        );
+        let rows_changed = rows != self.rows;
+        if rows_changed {
             self.selected = previous
                 .as_ref()
                 .and_then(|old| rows.iter().position(|r| r == old))
                 .unwrap_or(0);
             self.rows = rows;
+        }
+        self.display_rows.clear();
+        let mut related_header = false;
+        for (index, row) in self.rows.iter().enumerate() {
+            if row.identity.group != Group::FreshThread && !related_header {
+                self.display_rows.push(None);
+                related_header = true;
+            }
+            self.display_rows.push(Some(index));
+        }
+        // Refresh detail timestamps even when the connection rows are unchanged.
+        if names_changed || rows_changed {
             self.paint_rows();
+        } else {
+            self.details();
         }
         self.header();
     }
@@ -231,14 +325,20 @@ impl View {
                     self.font = font;
                 }
                 self.dpi = dpi;
+                SendMessageW(
+                    self.list,
+                    LB_SETITEMHEIGHT,
+                    Some(WPARAM(0)),
+                    Some(LPARAM(self.px(21) as isize)),
+                );
             }
             let mut r = RECT::default();
             let _ = GetClientRect(hwnd, &mut r);
             let margin = self.px(18);
             let width = (r.right - margin * 2).max(1);
-            let head = self.px(144);
+            let head = self.px(102);
             let foot = self.px(70);
-            let detail = self.px(160);
+            let detail = self.px(180);
             let list = (r.bottom - margin * 2 - head - foot - detail).max(1);
             let _ = MoveWindow(self.header, margin, margin, width, head, true);
             let _ = MoveWindow(self.list, margin, margin + head, width, list, true);
@@ -267,6 +367,55 @@ unsafe extern "system" fn procedure(hwnd: HWND, message: u32, wp: WPARAM, lp: LP
     // Reentrant paint/DPI/destruction messages never borrow View. Control APIs
     // can synchronously send these while a sampling/layout borrow is active.
     match message {
+        WM_MEASUREITEM => unsafe {
+            let item = &mut *(lp.0 as *mut MEASUREITEMSTRUCT);
+            item.itemHeight = 21 * GetDpiForWindow(hwnd).max(96) / 96;
+            return LRESULT(1);
+        },
+        WM_DRAWITEM => unsafe {
+            let item = &*(lp.0 as *const DRAWITEMSTRUCT);
+            if item.itemID == u32::MAX {
+                return LRESULT(1);
+            }
+            let style = item.itemData;
+            let selected = item.itemState.0 & ODS_SELECTED.0 != 0 && style != 1;
+            let background = if selected {
+                COLORREF(0x00432c1c)
+            } else {
+                BACKGROUND
+            };
+            SetDCBrushColor(item.hDC, background);
+            FillRect(item.hDC, &item.rcItem, HBRUSH(GetStockObject(DC_BRUSH).0));
+            SetBkColor(item.hDC, background);
+            SetTextColor(item.hDC, if style == 0 { BLUE } else { MUTED });
+            let font = SendMessageW(item.hwndItem, WM_GETFONT, None, None);
+            let old = SelectObject(item.hDC, HGDIOBJ(font.0 as *mut _));
+            let length = SendMessageW(
+                item.hwndItem,
+                LB_GETTEXTLEN,
+                Some(WPARAM(item.itemID as usize)),
+                None,
+            )
+            .0;
+            if (0..4096).contains(&length) {
+                let mut buffer = vec![0u16; length as usize + 1];
+                SendMessageW(
+                    item.hwndItem,
+                    LB_GETTEXT,
+                    Some(WPARAM(item.itemID as usize)),
+                    Some(LPARAM(buffer.as_mut_ptr() as isize)),
+                );
+                let mut rect = item.rcItem;
+                DrawTextW(
+                    item.hDC,
+                    &mut buffer[..length as usize],
+                    &mut rect,
+                    DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX | DT_END_ELLIPSIS,
+                );
+            }
+            SelectObject(item.hDC, old);
+            return LRESULT(1);
+        },
         WM_CTLCOLORSTATIC | WM_CTLCOLOREDIT | WM_CTLCOLORLISTBOX => unsafe {
             let dc = HDC(wp.0 as *mut _);
             SetTextColor(dc, BLUE);
@@ -329,7 +478,25 @@ unsafe extern "system" fn procedure(hwnd: HWND, message: u32, wp: WPARAM, lp: LP
                 let view = unsafe { &mut *ptr };
                 let n = unsafe { SendMessageW(view.list, LB_GETCURSEL, None, None) }.0;
                 if n >= 0 {
-                    view.selected = n as usize;
+                    let mut position = n as usize;
+                    if view.display_rows.get(position) == Some(&None) {
+                        let old = view
+                            .display_rows
+                            .iter()
+                            .position(|r| *r == Some(view.selected))
+                            .unwrap_or(0);
+                        position = if position < old && position > 0 {
+                            position - 1
+                        } else {
+                            position + 1
+                        };
+                        unsafe {
+                            SendMessageW(view.list, LB_SETCURSEL, Some(WPARAM(position)), None);
+                        }
+                    }
+                    if let Some(Some(index)) = view.display_rows.get(position) {
+                        view.selected = *index;
+                    }
                     view.help = false;
                     view.details();
                 }
@@ -395,7 +562,11 @@ fn run_window(visible: bool, ready: impl FnOnce(HWND)) -> windows::core::Result<
             let header = child(w!("STATIC"), WINDOW_STYLE(0))?;
             let list = child(
                 w!("LISTBOX"),
-                WS_TABSTOP | WINDOW_STYLE((LBS_NOTIFY | LBS_NOINTEGRALHEIGHT) as u32),
+                WS_TABSTOP
+                    | WINDOW_STYLE(
+                        (LBS_NOTIFY | LBS_NOINTEGRALHEIGHT | LBS_OWNERDRAWFIXED | LBS_HASSTRINGS)
+                            as u32,
+                    ),
             )?;
             let detail = child(
                 w!("EDIT"),
@@ -409,6 +580,8 @@ fn run_window(visible: bool, ready: impl FnOnce(HWND)) -> windows::core::Result<
                 footer,
                 font: HFONT::default(),
                 rows: Vec::new(),
+                display_rows: Vec::new(),
+                names: names::Reader::new(),
                 selected: 0,
                 paused: false,
                 help: false,
@@ -448,6 +621,7 @@ fn run_window(visible: bool, ready: impl FnOnce(HWND)) -> windows::core::Result<
                         }
                         0x50 => {
                             view.paused = !view.paused;
+                            view.names.set_paused(view.paused);
                             if view.paused {
                                 let _ = KillTimer(Some(hwnd), 1);
                             } else {
@@ -539,6 +713,47 @@ mod tests {
             view.paused = false;
             view.sample();
             assert_ne!(view.time, "paused fixture");
+            view.paused = true;
+            let row = |group| Connection {
+                identity: super::super::model::Identity {
+                    pid: 1,
+                    started: 1,
+                    path: "fixture.exe".into(),
+                    group,
+                },
+                protocol: "TCP4",
+                local: "127.0.0.1:1".into(),
+                remote: "192.0.2.1:443".into(),
+                state: "established".into(),
+                bytes: None,
+            };
+            view.rows = vec![row(Group::FreshThread), row(Group::Codex)];
+            view.display_rows = vec![Some(0), None, Some(1)];
+            view.selected = 0;
+            view.paint_rows();
+            let list = view.list;
+            // Real list selection notifications skip the decorative group row
+            // in both directions and keep the detail's model index correct.
+            SendMessageW(list, LB_SETCURSEL, Some(WPARAM(1)), None);
+            SendMessageW(
+                hwnd,
+                WM_COMMAND,
+                Some(WPARAM((LBN_SELCHANGE as usize) << 16)),
+                None,
+            );
+            let view = &mut *(GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut View);
+            assert_eq!(view.selected, 1);
+            assert_eq!(SendMessageW(list, LB_GETCURSEL, None, None).0, 2);
+            SendMessageW(list, LB_SETCURSEL, Some(WPARAM(1)), None);
+            SendMessageW(
+                hwnd,
+                WM_COMMAND,
+                Some(WPARAM((LBN_SELCHANGE as usize) << 16)),
+                None,
+            );
+            let view = &mut *(GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut View);
+            assert_eq!(view.selected, 0);
+            assert_eq!(SendMessageW(list, LB_GETCURSEL, None, None).0, 0);
             PostMessageW(Some(hwnd), WM_CLOSE, WPARAM(0), LPARAM(0)).unwrap();
         })
         .unwrap();

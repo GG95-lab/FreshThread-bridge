@@ -10,7 +10,20 @@ navigate longer lists. P pauses sampling, ? opens help, and Q closes the window.
 The viewer asks Windows for the current TCP connections and local UDP endpoints
 once per second. It groups FreshThread's own programs before related programs,
 including WebView2 and Codex. Times are local. Long addresses are shortened in
-the list and shown in full in the selectable, wrapping details area.
+the list and shown in full in the selectable, wrapping details area. The first
+line counts FreshThread's visible remote TCP connections, excluding listeners
+and loopback. It does not infer which side initiated a connection or measure
+bytes sent. Related programs appear in a muted "Not FreshThread" group.
+Listeners and loopback rows say "local only"; UDP destinations remain unknown.
+
+When available, names come from Windows' local DNS cache through the documented
+MSFT_DNSClientCache provider. This never performs a network DNS lookup. Cache
+reads run away from the UI, at most once per 15 seconds while unpaused. Only
+names matching visible remote addresses are retained in memory. A cached name
+is a hint: shared IPs can have several names, and a cache entry does not prove
+which hostname a program used. Missing, partial or inaccessible cache data falls
+back to the IP address. Pausing cancels further cache work; closing the viewer
+ends its process and worker even if a Windows provider stalls.
 
 Short connections between samples can be missed. Windows' UDP table shows
 local endpoints, not remote destinations. A blank list does not mean that a
@@ -23,7 +36,7 @@ A Codex connection does not prove that FreshThread caused it.
 ## Observation boundary
 
 Only an open, unpaused viewer samples. Closing the window stops it. There is
-no admin mode, ETW session, service, DNS lookup, upload or saved traffic history.
+no admin mode, ETW session, service, network DNS lookup, upload or saved traffic history.
 The executable does not read Codex conversations, FreshThread's database or its
 installation key, and it does not launch the private FreshThread engine.
 The bridge's hook/MCP path does not load or call the inspector.
@@ -54,4 +67,5 @@ These source tests do not establish end-to-end packaged acceptance.
 - [TCP tables](https://learn.microsoft.com/en-us/windows/win32/api/iphlpapi/nf-iphlpapi-getextendedtcptable)
 - [UDP endpoint tables](https://learn.microsoft.com/en-us/windows/win32/api/iphlpapi/nf-iphlpapi-getextendedudptable)
 - [Wrapping native edit controls](https://learn.microsoft.com/en-us/windows/win32/controls/edit-control-styles)
+- [Local DNS cache records](https://learn.microsoft.com/en-us/windows/win32/fwp/wmi/dnsclientcimprov/msft-dnsclientcache)
 

@@ -36,6 +36,24 @@ pub struct Connection {
     pub bytes: Option<u32>,
 }
 
+impl Connection {
+    pub fn remote_ip(&self) -> Option<IpAddr> {
+        self.remote
+            .parse::<std::net::SocketAddr>()
+            .ok()
+            .map(|a| a.ip())
+    }
+    pub fn local_only(&self) -> bool {
+        self.state == "listen"
+            || self
+                .remote_ip()
+                .is_some_and(|ip| ip.is_loopback() || ip.is_unspecified())
+    }
+    pub fn remote_tcp(&self) -> bool {
+        self.protocol.starts_with("TCP") && !self.local_only() && self.remote_ip().is_some()
+    }
+}
+
 pub fn address(bytes: &[u8]) -> Option<IpAddr> {
     match bytes.len() {
         4 => Some(IpAddr::from(<[u8; 4]>::try_from(bytes).ok()?)),
@@ -81,5 +99,34 @@ mod tests {
     fn console_data_cannot_inject_control_sequences() {
         assert_eq!(safe_text("A\x1b[2J\n", 10), "A [2J     ");
         assert_eq!(safe_text("long", 2), "lo");
+    }
+    #[test]
+    fn listeners_loopback_and_udp_are_not_counted_as_remote_tcp() {
+        let mut row = Connection {
+            identity: Identity {
+                pid: 1,
+                started: 1,
+                path: "fixture.exe".into(),
+                group: Group::FreshThread,
+            },
+            protocol: "TCP4",
+            local: "0.0.0.0:80".into(),
+            remote: "0.0.0.0:0".into(),
+            state: "listen".into(),
+            bytes: None,
+        };
+        assert!(row.local_only());
+        assert!(!row.remote_tcp());
+        row.state = "established".into();
+        row.remote = "127.0.0.1:1234".into();
+        assert!(row.local_only());
+        assert!(!row.remote_tcp());
+        row.remote = "[2001:db8::1]:443".into();
+        assert!(!row.local_only());
+        assert!(row.remote_tcp());
+        row.protocol = "UDP6";
+        row.remote = "unavailable".into();
+        assert!(!row.remote_tcp());
+        assert!(!row.local_only());
     }
 }

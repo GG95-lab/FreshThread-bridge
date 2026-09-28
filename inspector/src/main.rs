@@ -1,6 +1,8 @@
 #![cfg_attr(not(test), windows_subsystem = "windows")]
 mod model;
 #[cfg(windows)]
+mod names;
+#[cfg(windows)]
 mod process;
 #[cfg(windows)]
 mod snapshot;
