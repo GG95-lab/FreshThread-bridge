@@ -1,7 +1,25 @@
-# FreshThread bridge
+# FreshThread — Open-source Codex connection & network viewer
 
-This is the small, open-source part of FreshThread that connects to Codex on
-Windows. The main FreshThread app remains private. [Get the app here](https://github.com/GG95-lab/FreshThread-app/releases).
+This repository contains two open-source Windows components of FreshThread:
+
+- **Codex connection:** the bridge that connects the FreshThread app to Codex.
+- **Network activity viewer:** a separate tool that shows connections reported
+  by Windows. Open it from FreshThread's **Network activity…** tray option.
+
+Both components have independently verifiable GitHub builds. You can review
+their source code and verify the exact files included in your installation.
+
+**[Download FreshThread for Windows](https://github.com/GG95-lab/FreshThread-app/releases)** ·
+**[Browse the source](https://github.com/GG95-lab/FreshThread-bridge/tree/main)** ·
+**[Verify your installed components](VERIFY.md)**
+
+The FreshThread desktop app currently has no Windows publisher signature.
+Public source code and GitHub build attestations provide additional transparency;
+they do not replace Windows publisher signing. The main FreshThread app remains
+private.
+
+## Codex connection
+
 An older installer may still use the previous connection until it receives an
 app update that includes this bridge.
 
