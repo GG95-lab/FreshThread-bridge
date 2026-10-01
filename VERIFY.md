@@ -35,6 +35,19 @@ fixed status codes rather than raw engine exceptions.
 
 ## Check an installed bridge after publication
 
+### Connection updates and recovery
+
+An older installer may still use the previous connection until it receives an
+app update that includes this bridge.
+
+Once this bridge is loaded, compatible FreshThread updates can reconnect in the
+background without closing Codex. A call already in progress finishes first.
+The bridge checks the new app file before switching and keeps the same Codex
+connection open. Moving from an older bridge, or changing the plugin's tools or
+permissions, can still require a Codex restart.
+
+### Verify the installed file
+
 1. Read `%LOCALAPPDATA%\com.freshthread.desktop\integration\freshthread-integration.cmd`
    without running it. Confirm it starts `bin\freshthread-integration-bridge-<hash>.exe`
    and uses `--managed-backend`. For this mode, `integration-state.json` in the
