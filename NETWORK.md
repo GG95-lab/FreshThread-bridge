@@ -2,19 +2,26 @@
 
 FreshThread's tray menu opens a separate **freshthread-inspect.exe** window.
 It uses blue terminal-style text, with no visible scrollbars. Select a row
-with the mouse or arrow keys; Enter opens its details. Wheel and Page Up/Down
+with the mouse or arrow keys; Enter opens its details, then cycles through the
+connections in that program group. Wheel and Page Up/Down
 navigate longer lists. P pauses sampling, ? opens help, and Q closes the window.
 
 ## What it shows
 
 The viewer asks Windows for the current TCP connections and local UDP endpoints
 once per second. It groups FreshThread's own programs before related programs,
-including WebView2 and Codex. Times are local. Long addresses are shortened in
-the list and shown in full in the selectable, wrapping details area. The first
-line counts FreshThread's visible remote TCP connections, excluding listeners
-and loopback. It does not infer which side initiated a connection or measure
-bytes sent. Related programs appear in a muted "Not FreshThread" group.
-Listeners and loopback rows say "local only"; UDP destinations remain unknown.
+including WebView2 and Codex. One list row summarizes each program group; times
+are local. The prominent first line describes FreshThread's observed external
+TCP connections, excluding listeners and loopback. It does not infer which side
+initiated a connection, measure bytes sent, or prove an absence of traffic.
+Related programs appear in a muted "Not FreshThread" group. WebView2 can carry
+application requests; the label identifies the process, not the request's author.
+
+Connection states, protocols, process IDs and full addresses appear in the
+selectable, wrapping details area. Executable names replace full paths to avoid
+revealing a Windows username or workspace. "Only this PC can connect" applies
+only to loopback endpoints. Wildcard listeners may be reachable from other
+devices, depending on firewall settings. UDP destinations remain unknown.
 
 When available, names come from Windows' local DNS cache through the documented
 MSFT_DNSClientCache provider. This never performs a network DNS lookup. Cache
@@ -57,7 +64,8 @@ does not verify the inspector. See [Verification](VERIFY.md).
 
 Run `cargo test --workspace --locked` and `cargo fmt --all -- --check`.
 Tests exercise real local TCP/UDP sockets, process identity rejection, bounded
-display columns and native window/control bounds without scrollbars. Release
+display columns, grouped selection across state changes, loopback versus wildcard
+listeners, path redaction and native window/control bounds without scrollbars. Release
 acceptance additionally needs the actual tray launch, close/reopen, pause/resume,
 DPI/resize, updater cleanup, packaged digests and both GitHub attestations.
 These source tests do not establish end-to-end packaged acceptance.

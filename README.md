@@ -1,7 +1,7 @@
 # FreshThread bridge
 
 This is the small, open-source part of FreshThread that connects to Codex on
-Windows. The main FreshThread app remains private. [Get the app here](https://github.com/GG95-lab/FreshThread-BETA-version/releases).
+Windows. The main FreshThread app remains private. [Get the app here](https://github.com/GG95-lab/FreshThread-app/releases).
 An older installer may still use the previous connection until it receives an
 app update that includes this bridge.
 
@@ -18,7 +18,8 @@ summary can contain information you wrote, so it is stored locally by the app.
 
 The bridge itself has no internet connection. The main app reads your Codex
 session files on your computer to show the measurements, and it only goes online
-to check for updates and to send a bug report if you choose to submit one. This
+to check for updates and their signed minimum-version policy, and to send a bug
+report if you choose to submit one. This
 source code shows exactly what Codex's hooks and the FreshThread tool pass to the app.
 
 FreshThread may send Codex a fixed reminder to save the current task state. The
@@ -34,7 +35,8 @@ available. This license does not apply to the separate private FreshThread app.
 FreshThread's **Network activity…** tray option opens a separate, public
 `freshthread-inspect.exe`. Its blue terminal-style window shows connections
 reported by Windows, with labels for FreshThread, WebView2, Codex and related
-programs. Select a row to read the full program and connection details.
+programs. Connections are grouped by program; select a row and press Enter to
+inspect its connections. Full executable paths are omitted to protect usernames.
 
 No administrator permission is needed. Very short connections can be missed.
 The window shows addresses and connection states, not encrypted message contents
