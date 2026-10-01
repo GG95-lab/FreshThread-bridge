@@ -142,9 +142,13 @@ impl View {
             .iter()
             .any(|i| self.rows[*i].protocol.starts_with("UDP") || self.rows[*i].state == "listen")
         {
-            "entries"
+            if count == 1 { "entry" } else { "entries" }
         } else {
-            "connections"
+            if count == 1 {
+                "connection"
+            } else {
+                "connections"
+            }
         };
         let prefix = format!("{} → ", row.identity.group.label());
         let ending = format!(" ({count} {suffix})");
@@ -298,7 +302,7 @@ impl View {
         text(
             self.header,
             &format!(
-                "FRESHTHREAD · NETWORK ACTIVITY   {mode}\r\nSample {} · Open {}s  {}\r\nPROGRAM → DESTINATION                 CONNECTIONS",
+                "FRESHTHREAD · NETWORK ACTIVITY   {mode}\r\nSample {} · Open {}s  {}\r\nPROGRAM / OBSERVED DESTINATIONS",
                 self.time,
                 self.started.elapsed().as_secs(),
                 self.status
