@@ -52,6 +52,57 @@ impl Connection {
     pub fn remote_tcp(&self) -> bool {
         self.protocol.starts_with("TCP") && !self.local_only() && self.remote_ip().is_some()
     }
+    pub fn this_pc_only(&self) -> bool {
+        if self.state == "listen" || self.protocol.starts_with("UDP") {
+            return self
+                .local
+                .parse::<std::net::SocketAddr>()
+                .is_ok_and(|address| address.ip().is_loopback());
+        }
+        self.remote_ip().is_some_and(|ip| ip.is_loopback())
+    }
+}
+
+pub fn grouped_rows(rows: &[Connection]) -> Vec<Vec<usize>> {
+    let mut result: Vec<Vec<usize>> = Vec::new();
+    let mut groups = std::collections::HashMap::new();
+    for (index, row) in rows.iter().enumerate() {
+        let group = *groups.entry(row.identity.group).or_insert_with(|| {
+            result.push(Vec::new());
+            result.len() - 1
+        });
+        result[group].push(index);
+    }
+    result
+}
+
+pub fn restore_selection(rows: &[Connection], previous: Option<&Connection>) -> usize {
+    previous
+        .and_then(|old| {
+            rows.iter()
+                .position(|row| {
+                    row.identity == old.identity
+                        && row.protocol == old.protocol
+                        && row.local == old.local
+                        && row.remote == old.remote
+                })
+                .or_else(|| {
+                    rows.iter()
+                        .position(|row| row.identity.group == old.identity.group)
+                })
+        })
+        .unwrap_or(0)
+}
+
+pub fn private_path(path: &str) -> String {
+    // Display only the executable name. Profile roots and arbitrary parent
+    // directories can both contain names or private workspace identifiers.
+    path.rsplit(['\\', '/'])
+        .next()
+        .unwrap_or("program")
+        .chars()
+        .map(|c| if c.is_control() { ' ' } else { c })
+        .collect()
 }
 
 pub fn address(bytes: &[u8]) -> Option<IpAddr> {
@@ -116,6 +167,13 @@ mod tests {
             bytes: None,
         };
         assert!(row.local_only());
+        assert!(!row.this_pc_only());
+        row.local = "127.0.0.1:80".into();
+        assert!(row.this_pc_only());
+        row.local = "[::]:80".into();
+        assert!(!row.this_pc_only());
+        row.local = "[::1]:80".into();
+        assert!(row.this_pc_only());
         assert!(!row.remote_tcp());
         row.state = "established".into();
         row.remote = "127.0.0.1:1234".into();
@@ -128,5 +186,44 @@ mod tests {
         row.remote = "unavailable".into();
         assert!(!row.remote_tcp());
         assert!(!row.local_only());
+    }
+    #[test]
+    fn displayed_program_does_not_disclose_profile_or_workspace() {
+        assert_eq!(
+            private_path(r"C:\Users\private-user\private-project\app.exe"),
+            "app.exe"
+        );
+        assert_eq!(private_path("/home/private/app.exe"), "app.exe");
+    }
+    #[test]
+    fn grouped_connections_keep_selection_across_state_changes_and_disappearance() {
+        let row = |group, pid| Connection {
+            identity: Identity {
+                pid,
+                started: 1,
+                path: "fixture.exe".into(),
+                group,
+            },
+            protocol: "TCP4",
+            local: "127.0.0.1:1".into(),
+            remote: "192.0.2.1:443".into(),
+            state: "established".into(),
+            bytes: None,
+        };
+        let mut rows = vec![
+            row(Group::FreshThread, 1),
+            row(Group::Codex, 2),
+            row(Group::WebView, 3),
+            row(Group::Codex, 4),
+        ];
+        assert_eq!(grouped_rows(&rows), vec![vec![0], vec![1, 3], vec![2]]);
+        let previous = rows[3].clone();
+        rows[3].state = "close-wait".into();
+        assert_eq!(restore_selection(&rows, Some(&previous)), 3);
+        rows.pop();
+        assert_eq!(restore_selection(&rows, Some(&previous)), 1);
+        rows.retain(|row| row.identity.group != Group::Codex);
+        assert_eq!(restore_selection(&rows, Some(&previous)), 0);
+        assert_eq!(restore_selection(&[], Some(&previous)), 0);
     }
 }
